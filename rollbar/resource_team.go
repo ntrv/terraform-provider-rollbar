@@ -26,12 +26,15 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/rollbar/terraform-provider-rollbar/client"
 	"github.com/rs/zerolog/log"
+
+	"github.com/rollbar/terraform-provider-rollbar/helper"
 )
 
 // resourceTeam constructs a resource representing a Rollbar team.
@@ -122,10 +125,13 @@ func resourceTeamRead(ctx context.Context, d *schema.ResourceData, m interface{}
 	l.Info().Msg("Reading rollbar_team resource")
 	c := m.(map[string]*client.RollbarAPIClient)[schemaKeyToken]
 
-	client.Mutex.Lock()
-	setResourceHeader(rollbarTeam, c)
-	t, err := c.ReadTeam(id)
-	client.Mutex.Unlock()
+	t, err := helper.RetryWhenNotFoundFromClient(ctx, 30*time.Second, func() (client.Team, error) {
+		client.Mutex.Lock()
+		defer client.Mutex.Unlock()
+
+		setResourceHeader(rollbarTeam, c)
+		return c.ReadTeam(id)
+	})
 
 	if err == client.ErrNotFound {
 		d.SetId("")
